@@ -5,7 +5,7 @@ TOKEN = "7761415730:AAGZD1QDlwiNVLaoKZZEcar18b0HZhNPWhs"
 bot = telebot.TeleBot(TOKEN)
 
 # Lista de IDs dos administradores
-ADMIN_IDS = [7477496964, 6439529867]
+ADMIN_IDS = [8154662660 , 6439529867]
 # ID do grupo onde as mensagens serão enviadas
 GROUP_ID = -1001468375523
 
