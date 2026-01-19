@@ -5,9 +5,10 @@ TOKEN = "7761415730:AAGZD1QDlwiNVLaoKZZEcar18b0HZhNPWhs"
 bot = telebot.TeleBot(TOKEN)
 
 # Lista de IDs dos administradores
-ADMIN_IDS = [8154662660 , 6439529867]
-# ID do grupo onde as mensagens serão enviadas
-GROUP_ID = -1001468375523
+ADMIN_IDS = [8154662660, 6439529867]
+
+# ID do canal onde as mensagens serão enviadas
+CHANNEL_ID = -1003175055759  # seu canal configurado
 
 # Armazena mensagens pendentes para aprovação
 pending_messages = {}
@@ -91,10 +92,10 @@ def receive_message(message):
 def approve_message(call):
     msg_id = int(call.data.split("_")[1])
     if msg_id in pending_messages:
-        bot.send_message(GROUP_ID, f"🔹 Mensagem anônima:\n{pending_messages[msg_id]['text']}")
-        bot.send_message(pending_messages[msg_id]["user_id"], "✅ Sua mensagem foi aprovada e enviada ao grupo!")
+        bot.send_message(CHANNEL_ID, f"🔹 Mensagem anônima:\n{pending_messages[msg_id]['text']}")
+        bot.send_message(pending_messages[msg_id]["user_id"], "✅ Sua mensagem foi aprovada e enviada ao canal!")
         del pending_messages[msg_id]
-        bot.answer_callback_query(call.id, "Mensagem aprovada e enviada ao grupo.")
+        bot.answer_callback_query(call.id, "Mensagem aprovada e enviada ao canal.")
     else:
         bot.answer_callback_query(call.id, "Mensagem não encontrada ou já processada.")
 
