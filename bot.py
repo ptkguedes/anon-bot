@@ -180,4 +180,4 @@ def receive_message(message):
         except: pass
     bot.send_message(message.chat.id, "✅ Enviada para moderação!")
 
-bot.polling(none_stop=True)True)
+bot.polling(none_stop=True)
