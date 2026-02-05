@@ -1,17 +1,14 @@
 import os
-import json
 import re
 import threading
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# --- CARREGAMENTO DE AMBIENTE ---
-load_dotenv()
-TOKEN = os.getenv("CORREIO_TOKEN")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
-ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS").split(",")]
+# --- CONFIGURAÇÕES DIRETAS ---
+TOKEN = "7761415730:AAGZD1QDlwiNVLaoKZZEcar18b0HZhNPWhs"
+CHANNEL_ID = -1003175055759
+ADMIN_IDS = [8154662660, 6439529867]
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -29,7 +26,9 @@ def monitor_tempo():
             if datetime.now() >= end_time:
                 bot_active = False
                 end_time = None
-                bot.send_message(CHANNEL_ID, "🛑 **CORREIO ENCERRADO!**\nA sessão automática chegou ao fim. Obrigado a todos! 💌")
+                try:
+                    bot.send_message(CHANNEL_ID, "🛑 **CORREIO ENCERRADO!**\nA sessão automática chegou ao fim. Obrigado a todos! 💌")
+                except: pass
                 for adm in ADMIN_IDS:
                     try: bot.send_message(adm, "⏰ **TEMPO ESGOTADO!** O correio foi fechado automaticamente.")
                     except: pass
@@ -82,32 +81,26 @@ def handle_callbacks(call):
 
     if uid not in ADMIN_IDS: return
 
-    # Ações de Ranking
     if call.data == "rank_share":
         bot.send_message(CHANNEL_ID, gerar_texto_ranking(), parse_mode="Markdown")
     elif call.data == "rank_close":
         bot.delete_message(call.message.chat.id, call.message.message_id)
-
-    # Wizard de Início
     elif call.data == "wiz_mode":
         markup = InlineKeyboardMarkup().add(
             InlineKeyboardButton("🕹️ Manual", callback_data="setup_m"),
             InlineKeyboardButton("⏲️ Automático", callback_data="setup_a")
         )
         bot.edit_message_text("Como deseja gerenciar o tempo?", call.message.chat.id, call.message.message_id, reply_markup=markup)
-
     elif call.data == "setup_m":
         bot_active = True
         session_stats = {}
         bot.edit_message_text("✅ Correio iniciado (MODO MANUAL).", call.message.chat.id, call.message.message_id)
-
     elif call.data == "setup_a":
         markup = InlineKeyboardMarkup().add(
             InlineKeyboardButton("1h", callback_data="auto_h1"), 
             InlineKeyboardButton("2h", callback_data="auto_h2")
         )
         bot.edit_message_text("Duração base:", call.message.chat.id, call.message.message_id, reply_markup=markup)
-
     elif call.data.startswith("auto_h"):
         h = call.data[-1]
         markup = InlineKeyboardMarkup().add(
@@ -116,26 +109,21 @@ def handle_callbacks(call):
             InlineKeyboardButton(f"{h}h:30", callback_data=f"final_{h}_30")
         )
         bot.edit_message_text(f"🕒 {h}h escolhido. Adicionar minutos?", call.message.chat.id, call.message.message_id, reply_markup=markup)
-
     elif call.data.startswith("final_"):
         _, h, m = call.data.split("_")
         bot_active = True
         session_stats = {}
         end_time = datetime.now() + timedelta(hours=int(h), minutes=int(m))
         bot.edit_message_text(f"✅ **CORREIO INICIADO!**\nFecha às: {end_time.strftime('%H:%M:%S')}", call.message.chat.id, call.message.message_id)
-
-    # APROVAÇÃO E REJEIÇÃO (SISTEMA ANTIGO RESTAURADO)
     elif call.data.startswith(("ap_", "rj_")):
         act, m_id = call.data.split("_")
         if m_id in pending_messages:
             dados = pending_messages.pop(m_id)
             if act == "ap":
-                # Lógica do Ranking
                 mentions = re.findall(r'@\w+', dados['text'])
                 for m in mentions:
                     if m.lower() != f"@{dados['user_username']}".lower():
                         session_stats[m] = session_stats.get(m, 0) + 1
-                
                 bot.send_message(CHANNEL_ID, f"🔹 **Mensagem Anônima:**\n\n{dados['text']}")
                 bot.edit_message_text(f"✅ Aprovada por @{call.from_user.username}", call.message.chat.id, call.message.message_id)
                 bot.send_message(dados['user_id'], "✅ Sua mensagem foi aprovada!")
@@ -143,7 +131,7 @@ def handle_callbacks(call):
                 bot.edit_message_text(f"❌ Recusada por @{call.from_user.username}", call.message.chat.id, call.message.message_id)
                 bot.send_message(dados['user_id'], "❌ Sua mensagem foi recusada.")
 
-# --- RECEBIMENTO (ESTILO ANTIGO COM DETALHES ADMIN) ---
+# --- RECEBIMENTO ---
 @bot.message_handler(func=lambda m: m.chat.type == "private" and not m.text.startswith('/'))
 def receive_message(message):
     if not bot_active:
@@ -154,7 +142,6 @@ def receive_message(message):
     user_username = message.from_user.username or "SemUsername"
     m_id = str(message.message_id)
 
-    # Armazena para o admin
     pending_messages[m_id] = {
         "user_id": user_id, 
         "user_name": user_name,
@@ -167,13 +154,11 @@ def receive_message(message):
         InlineKeyboardButton("❌ Recusar", callback_data=f"rj_{m_id}")
     )
 
-    # Alerta detalhado para os Admins (O que você pediu para manter)
     for adm in ADMIN_IDS:
         try:
-            bot.send_message(adm, f"Nova mensagem anônima recebida:\n\n🔹 {message.text}\n👤 Remetente: {user_name} (ID: {user_id} | @{user_username})\n\nEssa informação só é visível para administradores.", reply_markup=markup)
+            bot.send_message(adm, f"Nova mensagem anônima recebida:\n\n🔹 {message.text}\n👤 Remetente: {user_name} (ID: {user_id} | @{user_username})", reply_markup=markup)
             bot.forward_message(adm, user_id, message.message_id)
         except: pass
-    
-    bot.send_message(user_id, "📨 Sua mensagem foi enviada para aprovação do admin.")
+    bot.send_message(user_id, "📨 Enviada para aprovação do admin.")
 
 bot.polling(none_stop=True)
