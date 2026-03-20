@@ -85,6 +85,9 @@ def handle_callbacks(call):
         bot.send_message(CHANNEL_ID, gerar_texto_ranking(), parse_mode="Markdown")
     elif call.data == "rank_close":
         bot.delete_message(call.message.chat.id, call.message.message_id)
+    elif call.data == "wiz_cancel":
+        bot.edit_message_text("❌ Início da sessão do Correio Anônimo foi cancelado.", call.message.chat.id, call.message.message_id)
+        return
     elif call.data == "wiz_mode":
         markup = InlineKeyboardMarkup().add(
             InlineKeyboardButton("🕹️ Manual", callback_data="setup_m"),
