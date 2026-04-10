@@ -122,18 +122,24 @@ def handle_callbacks(call):
         act, m_id = call.data.split("_")
         if m_id in pending_messages:
             dados = pending_messages.pop(m_id)
+            
+            # --- PATCH DE NULL SAFETY (Tolerância a Falhas) ---
+            user = call.from_user
+            identificacao = f"@{user.username}" if user.username else user.first_name
+            # --------------------------------------------------
+
             if act == "ap":
                 mentions = re.findall(r'@\w+', dados['text'])
                 for m in mentions:
                     if m.lower() != f"@{dados['user_username']}".lower():
                         session_stats[m] = session_stats.get(m, 0) + 1
                 bot.send_message(CHANNEL_ID, f"🔹 **Mensagem Anônima:**\n\n{dados['text']}")
-                bot.edit_message_text(f"✅ Aprovada por @{call.from_user.username}", call.message.chat.id, call.message.message_id)
+                bot.edit_message_text(f"✅ Aprovada por {identificacao}", call.message.chat.id, call.message.message_id)
                 bot.send_message(dados['user_id'], "✅ Sua mensagem foi aprovada!")
             else:
-                bot.edit_message_text(f"❌ Recusada por @{call.from_user.username}", call.message.chat.id, call.message.message_id)
+                bot.edit_message_text(f"❌ Recusada por {identificacao}", call.message.chat.id, call.message.message_id)
                 bot.send_message(dados['user_id'], "❌ Sua mensagem foi recusada.")
-
+                
 # --- RECEBIMENTO ---
 @bot.message_handler(func=lambda m: m.chat.type == "private" and not m.text.startswith('/'))
 def receive_message(message):
