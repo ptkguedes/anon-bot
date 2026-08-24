@@ -38,6 +38,13 @@ def nome_admin(user) -> str:
     return f"@{user.username}" if user.username else (user.first_name or "Admin")
 
 
+def label_admin(user) -> str:
+    nome = user.first_name or "Admin"
+    if user.username:
+        return f"{nome} (@{user.username})"
+    return nome
+
+
 def gerar_texto_ranking() -> str:
     ranking = sorted(session_stats.items(), key=lambda x: x[1], reverse=True)[:3]
     if not ranking:
@@ -61,21 +68,37 @@ def texto_moderacao(dados: dict) -> str:
     )
 
 
-def avisar_admins_inicio(iniciado_por: str, modo: str, fecha_em=None):
-    if fecha_em:
-        msg = (
-            f"✅ Correio iniciado ({modo})\n"
-            f"Fecha às: {fecha_em.strftime('%H:%M:%S')}\n"
-            f"(sessão iniciada por {iniciado_por})"
-        )
-    else:
-        msg = f"✅ Correio iniciado ({modo})\n(sessão iniciada por {iniciado_por})"
+def notificar_inicio_para_outros(admin_ator_id: int, ator_label: str, modo: str):
+    for adm in ADMIN_IDS:
+        if adm == admin_ator_id:
+            continue
+        try:
+            bot.send_message(adm, f"✅ {ator_label} iniciou a sessão em modo {modo}.")
+        except Exception as e:
+            logging.exception("Erro ao notificar início para admin %s: %s", adm, e)
 
+
+def notificar_encerramento_para_admins(admin_ator_id: int, ator_label: str):
     for adm in ADMIN_IDS:
         try:
-            bot.send_message(adm, msg)
+            if adm == admin_ator_id:
+                bot.send_message(adm, "🛑 Você encerrou a sessão.")
+            else:
+                bot.send_message(adm, f"🛑 {ator_label} encerrou a sessão.")
         except Exception as e:
-            logging.exception("Erro ao avisar admin %s sobre início: %s", adm, e)
+            logging.exception("Erro ao notificar encerramento para admin %s: %s", adm, e)
+
+
+def notificar_moderacao_para_admins(admin_ator_id: int, ator_label: str, acao: str):
+    # acao = "aprovou" ou "recusou"
+    for adm in ADMIN_IDS:
+        try:
+            if adm == admin_ator_id:
+                bot.send_message(adm, f"✅ Você {acao} a mensagem.")
+            else:
+                bot.send_message(adm, f"✅ {ator_label} {acao} a mensagem.")
+        except Exception as e:
+            logging.exception("Erro ao notificar moderação para admin %s: %s", adm, e)
 
 
 # --- MONITOR DE TEMPO ---
@@ -103,11 +126,7 @@ def monitor_tempo():
 
                 for adm in ADMIN_IDS:
                     try:
-                        bot.send_message(
-                            adm,
-                            "⏰ *TEMPO ESGOTADO!* O correio foi fechado automaticamente.",
-                            parse_mode="Markdown"
-                        )
+                        bot.send_message(adm, "⏰ Sessão encerrada automaticamente por tempo esgotado.")
                     except Exception as e:
                         logging.exception("Erro ao avisar admin %s: %s", adm, e)
 
@@ -145,11 +164,13 @@ def manual_stop(message):
     if message.from_user.id not in ADMIN_IDS:
         return
 
+    ator_label = label_admin(message.from_user)
+
     with state_lock:
         bot_active = False
         end_time = None
 
-    bot.send_message(message.chat.id, "❌ *CORREIO ENCERRADO.*", parse_mode="Markdown")
+    notificar_encerramento_para_admins(message.from_user.id, ator_label)
 
 
 @bot.message_handler(commands=["ranking"])
@@ -236,19 +257,21 @@ def handle_callbacks(call):
             )
 
         elif call.data == "setup_m":
-            iniciador = nome_admin(call.from_user)
+            ator_label = label_admin(call.from_user)
+
             with state_lock:
                 bot_active = True
                 end_time = None
                 session_stats = {}
 
-            aviso = f"✅ Correio iniciado (MODO MANUAL)\n(sessão iniciada por {iniciador})"
+            # Apenas o iniciador recebe esse texto no card atual
             bot.edit_message_text(
-                aviso,
+                "✅ Você iniciou a sessão em modo manual.",
                 call.message.chat.id,
                 call.message.message_id
             )
-            avisar_admins_inicio(iniciador, "MODO MANUAL")
+            # Demais admins recebem notificação separada
+            notificar_inicio_para_outros(call.from_user.id, ator_label, "manual")
 
         elif call.data == "setup_a":
             markup = InlineKeyboardMarkup()
@@ -280,7 +303,7 @@ def handle_callbacks(call):
 
         elif call.data.startswith("final_"):
             _, h, m = call.data.split("_")
-            iniciador = nome_admin(call.from_user)
+            ator_label = label_admin(call.from_user)
 
             with state_lock:
                 bot_active = True
@@ -288,20 +311,17 @@ def handle_callbacks(call):
                 end_time = datetime.now() + timedelta(hours=int(h), minutes=int(m))
                 fim = end_time
 
-            aviso = (
-                f"✅ CORREIO INICIADO!\n"
-                f"Fecha às: {fim.strftime('%H:%M:%S')}\n"
-                f"(sessão iniciada por {iniciador})"
-            )
             bot.edit_message_text(
-                aviso,
+                f"✅ Você iniciou a sessão em modo automático.\nFecha às: {fim.strftime('%H:%M:%S')}",
                 call.message.chat.id,
                 call.message.message_id
             )
-            avisar_admins_inicio(iniciador, "MODO AUTOMÁTICO", fim)
+            notificar_inicio_para_outros(call.from_user.id, ator_label, "automático")
 
         elif call.data.startswith(("ap_", "rj_")):
             act, msg_key = call.data.split("_", 1)
+            admin_resp = nome_admin(call.from_user)
+            ator_label = label_admin(call.from_user)
 
             with state_lock:
                 if msg_key not in pending_messages:
@@ -313,8 +333,6 @@ def handle_callbacks(call):
                     return
                 dados = pending_messages.pop(msg_key)
 
-            admin_responsavel = nome_admin(call.from_user)
-
             if act == "ap":
                 mentions = re.findall(r"@\w+", dados["text"] or "")
                 remetente_username = f"@{dados['user_username']}".lower()
@@ -323,28 +341,22 @@ def handle_callbacks(call):
                     if mention.lower() != remetente_username:
                         session_stats[mention] = session_stats.get(mention, 0) + 1
 
-                bot.send_message(
-                    GROUP_ID,
-                    f"🔹 Mensagem anônima:\n\n{dados['text']}"
-                )
+                bot.send_message(GROUP_ID, f"🔹 Mensagem anônima:\n\n{dados['text']}")
                 bot.send_message(dados["user_id"], "✅ Sua mensagem foi aprovada!")
-                status = f"✅ Aprovada por {admin_responsavel}"
+                status = f"✅ Aprovada por {admin_resp}"
+                notificar_moderacao_para_admins(call.from_user.id, ator_label, "aprovou")
             else:
                 bot.send_message(dados["user_id"], "❌ Sua mensagem foi recusada.")
-                status = f"❌ Recusada por {admin_responsavel}"
+                status = f"❌ Recusada por {admin_resp}"
+                notificar_moderacao_para_admins(call.from_user.id, ator_label, "recusou")
 
-            # Atualiza o card para TODOS os admins e remove os botões
+            # Atualiza card para TODOS os admins (remove botões)
             admin_msgs = dados.get("admin_messages", {})
-            base_text = texto_moderacao(dados)
-            novo_texto = f"{base_text}\n\n{status}"
+            novo_texto = f"{texto_moderacao(dados)}\n\n{status}"
 
             for adm_id, msg_id in admin_msgs.items():
                 try:
-                    bot.edit_message_text(
-                        novo_texto,
-                        adm_id,
-                        msg_id
-                    )
+                    bot.edit_message_text(novo_texto, adm_id, msg_id)
                 except Exception as e:
                     logging.exception("Erro ao atualizar card do admin %s: %s", adm_id, e)
 
@@ -376,7 +388,7 @@ def receive_message(message):
         "user_name": user_name,
         "user_username": user_username,
         "text": message.text,
-        "admin_messages": {}  # admin_id -> message_id do card de moderação
+        "admin_messages": {}
     }
 
     markup = InlineKeyboardMarkup()
@@ -387,11 +399,7 @@ def receive_message(message):
 
     for adm in ADMIN_IDS:
         try:
-            sent = bot.send_message(
-                adm,
-                texto_moderacao(dados),
-                reply_markup=markup
-            )
+            sent = bot.send_message(adm, texto_moderacao(dados), reply_markup=markup)
             dados["admin_messages"][adm] = sent.message_id
         except Exception as e:
             logging.exception("Erro ao enviar para admin %s: %s", adm, e)
